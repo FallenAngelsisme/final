@@ -145,7 +145,7 @@ class Map:
     #
     @classmethod
     def from_dict(cls, data: dict) -> "Map":
-
+        
         tp = data.get("teleport", []) #dict
 
         pos = Position(data["player"]["x"] * GameSettings.TILE_SIZE, data["player"]["y"] * GameSettings.TILE_SIZE)
