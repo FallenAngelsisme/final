@@ -161,7 +161,7 @@ class BattleScene(Scene):
             return
             
         # 簡單的回復道具
-        heal = 30
+        heal = 30 #之後用item
         self.player_monster["hp"] += heal
         
         if self.player_monster["hp"] > self.player_monster["max_hp"]:

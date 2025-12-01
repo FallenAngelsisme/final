@@ -72,8 +72,8 @@ class Map:
 
             #傳送點的矩形
             tp_rect = pg.Rect(
-                tp["x"]* GameSettings.TILE_SIZE,
-                tp["y"]* GameSettings.TILE_SIZE,
+                tp.pos.x,
+                tp.pos.y,
                 GameSettings.TILE_SIZE,
                 GameSettings.TILE_SIZE
             )
@@ -145,22 +145,17 @@ class Map:
     #
     @classmethod
     def from_dict(cls, data: dict) -> "Map":
-        
-        tp = data.get("teleport", []) #dict
+        tp_raw = data.get("teleport", [])
+        teleporters = [
+            Teleport.from_dict(tp) for tp in tp_raw
+        ]
 
         pos = Position(data["player"]["x"] * GameSettings.TILE_SIZE, data["player"]["y"] * GameSettings.TILE_SIZE)
-        return cls(data["path"], tp, pos)
+        return cls(data["path"], teleporters, pos)
 
     def to_dict(self):
         # 處理 teleporters - 可能是 dict 或 Teleport #看我之後要不要多做功能，可能就需要class teleport，GameManager.py def current_teleporter(self) -> list[Teleport] 我現在丟了dic勉強能用，但可能...要改?
-        teleport_list = []          #但，....我一開始沒發現definition有class teleport
-        for tp in self.teleporters:
-            if isinstance(tp, dict):
-                # 如果已經是 dict，直接使用
-                teleport_list.append(tp)
-            else:
-                # 如果是 class Teleport，呼叫 to_dict()
-                teleport_list.append(tp.to_dict())
+        teleport_list = [tp.to_dict() for tp in self.teleporters]        #但，....我一開始沒發現definition有class teleport
         
         return {
             "path": self.path_name,
