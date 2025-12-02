@@ -76,13 +76,20 @@ class Monster: #(TypedDict)
     max_hp: int
     level: int
     sprite_path: str'''
-
-    def __init__(self, name: str, hp: int, max_hp: int, level: int, sprite_path: str):
+    
+    
+    def __init__(self, name: str, hp: int, max_hp: int, level: int, sprite_path: str,
+        element: str = "Normal",
+        evolve_to: str = None,
+        evolve_level: int = None):
         self.name = name
         self.hp = hp
         self.max_hp = max_hp
         self.level = level
         self.sprite_path = sprite_path
+        self.element = element #ch3
+        self.evolve_to = evolve_to
+        self.evolve_level = evolve_level
 
     def to_dict(self) -> dict:
         return {
@@ -90,7 +97,10 @@ class Monster: #(TypedDict)
             "hp": self.hp,
             "max_hp": self.max_hp,
             "level": self.level,
-            "sprite_path": self.sprite_path
+            "sprite_path": self.sprite_path,
+            "element": self.element,            # ★ 必須加
+            "evolve_to": self.evolve_to,
+            "evolve_level": self.evolve_level
         }
 
     @classmethod
@@ -100,7 +110,10 @@ class Monster: #(TypedDict)
             hp=data["hp"],
             max_hp=data["max_hp"],
             level=data["level"],
-            sprite_path=data["sprite_path"]
+            sprite_path=data["sprite_path"],
+            element=data.get("element", "Normal"),      # ★ 必須加
+            evolve_to=data.get("evolve_to"),
+            evolve_level=data.get("evolve_level")
         )
 class Item: #(TypedDict)
     '''name: str

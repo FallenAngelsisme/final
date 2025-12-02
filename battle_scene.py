@@ -1,153 +1,284 @@
-'''
-[TODO HACKATHON 5]
-Try to mimic the menu_scene.py or game_scene.py to create this new scene
-'''
 import pygame as pg
-import threading
-import time
-
-
-
-
+import random
+from typing import override
+from src.data.evolution import EVOLUTION_DATA
+from src.data.elements import compute_element_multiplier
+from src.sprites.animation_sheet import AnimationSheet
 from src.sprites import BackgroundSprite
 from src.scenes.scene import Scene
-from src.core import GameManager, OnlineManager
-from src.utils import Logger, PositionCamera, GameSettings, Position
-from src.core.services import scene_manager, sound_manager, input_manager
-from src.sprites import Sprite
-from typing import override
+from src.core import GameManager
+from src.utils import Logger, GameSettings
+from src.core.services import scene_manager, sound_manager
 from src.interface.components import Button
-from src.interface.components.slider import Slider
-import random
+
 
 class BattleScene(Scene):
-
-
-    def __init__(self):
+    def __init__(self, game_manager: GameManager = None):
         super().__init__()
-       
+        
+        # Shake動畫
+        self.enemy_shake_timer = 0
+        self.player_shake_timer = 0
+
+        self.game_manager = game_manager  # 儲存 game_manager 引用
         self.background = BackgroundSprite("backgrounds/background1.png")
-    
-            # 戰鬥狀態
-        self.turn = "player"  # "player" 或 "enemy"
-        self.battle_state = "choose_action"  # "choose_action", "attacking", "game_over"
-        self.message = "What will you do?"
-        self.message_timer = 0
         
-        # 玩家數據（從 game_manager.bag 獲取第一隻怪獸）
-        self.player_monster = {
-            "name": "Pikachu",
-            "hp": 85,
-            "max_hp": 100,
-            "attack": 20,
-            "sprite_path": "menu_sprites/menusprite1.png"
-        }
+        # 戰鬥狀態
+        self.turn = "player"
+        self.battle_state = "choose_monster"  # 先選擇怪獸
+        self.message = "Choose your monster!"
+        self.message_timer = 2.0
         
-        # 敵人數據
-        self.enemy_monster = {
-            "name": "Charmander",
-            "hp": 80,
-            "max_hp": 80,
-            "attack": 18,
-            "sprite_path": "menu_sprites/menusprite2.png"
-        }
+        # 保存原始數據
+        self.original_player_data = None
+        self.selected_monster_index = None  # 記錄玩家選的是哪一隻
+        
+        # 當前戰鬥中的怪獸
+        self.player_monster = None
+        self.enemy_monster = None
+        
+        # Buff系統
+        self.player_attack_buff = 0
+        self.player_defense_buff = 0
         
         # 字體
         self.font_small = pg.font.Font("assets/fonts/Minecraft.ttf", 20)
         self.font_medium = pg.font.Font("assets/fonts/Minecraft.ttf", 30)
         self.font_large = pg.font.Font("assets/fonts/Minecraft.ttf", 40)
         
-        # 戰鬥按鈕 - 只在玩家回合顯示
+        # 怪獸選擇按鈕（最多顯示6隻）
+        self.monster_select_buttons = []
+        for i in range(6):
+            row = i // 3
+            col = i % 3
+            btn = Button(
+                "UI/raw/UI_Flat_Banner03a.png", "UI/raw/UI_Flat_Banner03a.png",
+                300 + col * 250, 200 + row * 120, 220, 100,
+                lambda idx=i: self.select_monster(idx)
+            )
+            self.monster_select_buttons.append(btn)
+        
+        # 戰鬥按鈕
         self.attack_button = Button(
             "UI/raw/UI_Flat_Button02a_3.png", "UI/raw/UI_Flat_Button02a_3.png",
-            400, 580, 120, 40,
-            self.player_attack
+            400, 580, 120, 40, self.player_attack
         )
-        
-        self.run_button = Button(
-            "UI/raw/UI_Flat_Button02a_3.png", "UI/raw/UI_Flat_Button02a_3.png",
-            640, 580, 120, 40,
-            self.run_away
-        )
-        
         self.item_button = Button(
             "UI/raw/UI_Flat_Button02a_3.png", "UI/raw/UI_Flat_Button02a_3.png",
-            880, 580, 120, 40,
-            self.use_item
+            550, 580, 120, 40, self.open_item_menu
         )
+        self.run_button = Button(
+            "UI/raw/UI_Flat_Button02a_3.png", "UI/raw/UI_Flat_Button02a_3.png",
+            700, 580, 120, 40, self.run_away
+        )
+
+        # Item Menu
+        self.item_menu_open = False
+        self.item_buttons = [
+            Button("UI/raw/UI_Flat_Button02a_3.png", "UI/raw/UI_Flat_Button02a_3.png",
+                   450, 350, 220, 40, lambda: self.use_item("Potion")),
+            Button("UI/raw/UI_Flat_Button02a_3.png", "UI/raw/UI_Flat_Button02a_3.png",
+                   450, 400, 220, 40, lambda: self.use_item("Strength Potion")),
+            Button("UI/raw/UI_Flat_Button02a_3.png", "UI/raw/UI_Flat_Button02a_3.png",
+                   450, 450, 220, 40, lambda: self.use_item("Defense Potion")),
+        ]
         
-        # 載入怪獸圖片
+        # 攻擊動畫 - 根據屬性不同
+        self.attack_animations = {
+            "Fire": "assets/images/attack/attack4.png",
+            "Water": "assets/images/attack/attack3.png",
+            "Grass": "assets/images/attack/attack6.png",
+            "Electric": "assets/images/attack/attack7.png",
+            "Normal": "assets/images/attack/attack1.png",
+        }
+        
+        self.current_player_anim = None
+        self.current_enemy_anim = None
+        self.play_player_attack_anim = False
+        self.play_enemy_attack_anim = False
+        
+        # 怪獸圖片緩存
+        self.player_sprite = None
+        self.enemy_sprite = None
+        
+        # 野生怪獸池（用於隨機生成敵人）
+        self.wild_monster_pool = [
+            {"name": "Wild Charizard", "element": "Fire", "sprite": "menu_sprites/menusprite2.png", "base_hp": 40, "base_attack": 20},
+            {"name": "Wild Blastoise", "element": "Water", "sprite": "menu_sprites/menusprite3.png", "base_hp": 80, "base_attack": 25},
+            {"name": "Wild Venusaur", "element": "Grass", "sprite": "menu_sprites/menusprite4.png", "base_hp": 60, "base_attack": 28},
+            {"name": "Wild Gengar", "element": "Electric", "sprite": "menu_sprites/menusprite5.png", "base_hp": 80, "base_attack": 15},
+            {"name": "Wild Dragonite", "element": "Normal", "sprite": "menu_sprites/menusprite6.png", "base_hp": 70, "base_attack": 20},
+        ]
+    def get_attack_anim(self, element):
+        """每次攻擊都產生新的動畫物件避免卡住"""
+        if element not in self.attack_animations:
+            return None
+        path = self.attack_animations[element]
+        anim = AnimationSheet(path, 64, 64, 4)
+        return anim
+
+    def generate_random_enemy(self):
+        """隨機生成野生敵人"""
+        template = random.choice(self.wild_monster_pool)
+        level = random.randint(20, 40)
+        
+        self.enemy_monster = {
+            "name": template["name"],
+            "hp": template["base_hp"] + level * 2,
+            "max_hp": template["base_hp"] + level * 2,
+            "attack": template["base_attack"] + level* 0.4,
+            "level": level,
+            "sprite_path": template["sprite"],
+            "element": template["element"]
+        }
+        
+        Logger.info(f"Wild {self.enemy_monster['name']} appeared! Lv.{level}")
+
+    def select_monster(self, index):
+        """玩家選擇怪獸"""
+        if self.battle_state != "choose_monster":
+            return
+        
+        bag = self.game_manager.bag
+        
+        if index >= len(bag._monsters_data):
+            return
+        
+        # 記錄選擇的怪獸
+        self.selected_monster_index = index
+        selected_mon = bag._monsters_data[index]
+        
+        # 保存原始數據
+        self.original_player_data = {
+            "hp": selected_mon.hp,
+            "max_hp": selected_mon.max_hp,
+            "attack": selected_mon.attack if hasattr(selected_mon, "attack") else (selected_mon.level * 2 + 20),
+            "level": selected_mon.level,
+            "name": selected_mon.name,
+            "sprite_path": selected_mon.sprite_path,
+            "element": selected_mon.element
+        }
+        
+        # 創建戰鬥用的副本
+        self.player_monster = self.original_player_data.copy()
+        
+        # 載入圖片
+        self.load_sprites()
+        
+        # 開始戰鬥
+        self.battle_state = "choose_action"
+        self.message = f"Go! {self.player_monster['name']}!"
+        self.message_timer = 2.5
+        
+        Logger.info(f"Player selected: {self.player_monster['name']}")
+
+    def load_sprites(self):
+        """載入怪獸圖片"""
         try:
-            self.player_sprite = pg.image.load("assets/images/" + self.player_monster["sprite_path"]).convert_alpha()
+            self.player_sprite = pg.image.load(
+                "assets/images/" + self.player_monster["sprite_path"]
+            ).convert_alpha()
             self.player_sprite = pg.transform.scale(self.player_sprite, (150, 150))
-        except:
+        except Exception as e:
+            Logger.error(f"Failed to load player sprite: {e}")
             self.player_sprite = None
             
         try:
-            self.enemy_sprite = pg.image.load("assets/images/" + self.enemy_monster["sprite_path"]).convert_alpha()
+            self.enemy_sprite = pg.image.load(
+                "assets/images/" + self.enemy_monster["sprite_path"]
+            ).convert_alpha()
             self.enemy_sprite = pg.transform.scale(self.enemy_sprite, (150, 150))
-        except:
+        except Exception as e:
+            Logger.error(f"Failed to load enemy sprite: {e}")
             self.enemy_sprite = None
 
+    def restore_monsters(self):
+        """戰鬥結束後恢復怪獸狀態"""
+        if self.selected_monster_index is None:
+            return
+        
+        bag = self.game_manager.bag
+        
+        # 恢復玩家怪獸的HP
+        if self.selected_monster_index < len(bag._monsters_data):
+            mon = bag._monsters_data[self.selected_monster_index]
+            mon.hp = self.original_player_data["hp"]
+        
+        # 重置Buff
+        self.player_attack_buff = 0
+        self.player_defense_buff = 0
+        
+        Logger.info("Monster stats restored after battle")
+
     def player_attack(self):
-        """玩家攻擊"""
         if self.turn != "player" or self.battle_state != "choose_action":
             return
-            
-        # 計算傷害（加入隨機性）
-        damage = self.player_monster["attack"] + random.randint(-5, 5)
-        self.enemy_monster["hp"] -= damage
-        
-        # 確保 HP 不會小於 0
-        if self.enemy_monster["hp"] < 0:
-            self.enemy_monster["hp"] = 0
-        
-        self.message = f"{self.player_monster['name']} attacks! Deals {damage} damage!"
-        self.message_timer = 2.0
-        self.battle_state = "attacking"
-        
-        # 檢查敵人是否死亡
-        if self.enemy_monster["hp"] <= 0:
-            self.message = f"{self.enemy_monster['name']} fainted! You win!"
-            self.battle_state = "game_over"
+
+        # 播玩家攻擊動畫
+        self.current_player_anim = self.get_attack_anim(self.player_monster["element"])
+        self.play_player_attack_anim = True
+
+        # 計算傷害
+        mult = compute_element_multiplier(self.player_monster["element"], self.enemy_monster["element"])
+        base_damage = self.player_monster["attack"] + self.player_attack_buff
+        damage = int((base_damage + random.randint(-5, 5)) * mult)
+        self.enemy_monster["hp"] = max(0, self.enemy_monster["hp"] - damage)
+
+        # 效果訊息
+        if mult > 1:
+            eff = "It's super effective!"
+        elif mult < 1:
+            eff = "Not very effective..."
         else:
-            # 切換到敵人回合
-            self.turn = "enemy"
+            eff = ""
+
+        self.message = f"{self.player_monster['name']} dealt {damage}! {eff}"
+        self.message_timer = 2.0
+
+        # 敵人震動效果
+        self.enemy_shake_timer = 0.4
+
+        self.battle_state = "player_anim"
+
 
     def enemy_attack(self):
-        """敵人攻擊"""
         if self.enemy_monster["hp"] <= 0:
             return
-            
-        # 計算傷害
-        damage = self.enemy_monster["attack"] + random.randint(-5, 5)
-        self.player_monster["hp"] -= damage
-        
-        if self.player_monster["hp"] < 0:
-            self.player_monster["hp"] = 0
-        
-        self.message = f"{self.enemy_monster['name']} attacks! Deals {damage} damage!"
-        self.message_timer = 2.0
-        
-        # 檢查玩家是否死亡
-        if self.player_monster["hp"] <= 0:
-            self.message = f"{self.player_monster['name']} fainted! You lose!"
-            self.battle_state = "game_over"
+
+        self.current_enemy_anim = self.get_attack_anim(self.enemy_monster["element"])
+        self.play_enemy_attack_anim = True
+
+        mult = compute_element_multiplier(self.enemy_monster["element"], self.player_monster["element"])
+        base_damage = self.enemy_monster["attack"]
+        damage = int((base_damage + random.randint(-5, 5)) * mult)
+        damage = max(1, damage - self.player_defense_buff)
+
+        self.player_monster["hp"] = max(0, self.player_monster["hp"] - damage)
+
+        # 效果訊息
+        if mult > 1:
+            eff = "It's super effective!"
+        elif mult < 1:
+            eff = "Not very effective..."
         else:
-            # 切換回玩家回合
-            self.turn = "player"
-            self.battle_state = "choose_action"
-            self.message = "What will you do?"
+            eff = ""
+
+        self.message = f"{self.enemy_monster['name']} dealt {damage}! {eff}"
+        self.message_timer = 2.0
+
+        # 玩家shake
+        self.player_shake_timer = 0.4
+
+        self.battle_state = "enemy_anim"
 
     def run_away(self):
         """逃跑"""
         if self.turn != "player" or self.battle_state != "choose_action":
             return
             
-        # 50% 機率逃跑成功
         if random.random() < 0.5:
             self.message = "Got away safely!"
-            self.message_timer = 1.5
+            self.message_timer = 2.5
             self.battle_state = "game_over"
         else:
             self.message = "Can't escape!"
@@ -155,151 +286,371 @@ class BattleScene(Scene):
             self.turn = "enemy"
             self.battle_state = "attacking"
 
-    def use_item(self):
-        """使用道具（回復 HP）"""
-        if self.turn != "player" or self.battle_state != "choose_action":
+    def open_item_menu(self):
+        """打開道具選單"""
+        if self.turn == "player" and self.battle_state == "choose_action":
+            self.item_menu_open = True
+
+    def use_item(self, item_name):
+        """使用道具"""
+        if not self.item_menu_open:
             return
-            
-        # 簡單的回復道具
-        heal = 30
-        self.player_monster["hp"] += heal
         
-        if self.player_monster["hp"] > self.player_monster["max_hp"]:
-            self.player_monster["hp"] = self.player_monster["max_hp"]
+        # 檢查道具是否存在
+        has_item = False
+        for item in self.game_manager.bag._items_data:
+            if item.name == item_name and item.count > 0:
+                has_item = True
+                break
         
-        self.message = f"{self.player_monster['name']} restored {heal} HP!"
-        self.message_timer = 2.0
-        self.battle_state = "attacking"
+        if not has_item:
+            self.message = f"You don't have any {item_name}!"
+            self.message_timer = 2.5
+            self.item_menu_open = False
+            return
+
+        # 使用道具效果
+        if item_name == "Potion":
+            heal = 40
+            self.player_monster["hp"] = min(
+                self.player_monster["hp"] + heal,
+                self.player_monster["max_hp"]
+            )
+            self.message = f"Recovered {heal} HP!"
+            self.game_manager.bag.del_item("Potion")
+
+        elif item_name == "Strength Potion":
+            self.player_attack_buff += 10
+            self.message_timer = 2.2
+            self.message = f"{self.player_monster['name']}'s attack + 10!"
+            self.game_manager.bag.del_item("Strength Potion")
+
+        elif item_name == "Defense Potion":
+            self.player_defense_buff += 10
+            self.message_timer = 2.2
+            self.message = f"{self.player_monster['name']}'s defense +10!"
+            self.game_manager.bag.del_item("Defense Potion")
+
+        self.item_menu_open = False
+        self.message_timer = 2.2
         self.turn = "enemy"
+        self.battle_state = "item_used"
+           
+    def try_evolve(self):
+        """嘗試進化玩家的怪獸"""
+        if self.selected_monster_index is None:
+            return
+        
+        # 找到原始怪獸數據
+        if self.selected_monster_index >= len(self.game_manager.bag._monsters_data):
+            return
+        
+        mon = self.game_manager.bag._monsters_data[self.selected_monster_index]
+        name = mon.name
+        
+        if name not in EVOLUTION_DATA:
+            return
+        
+        evo = EVOLUTION_DATA[name]
+        if mon.level >= evo["level"]:
+            # 進化！
+            old_name = mon.name
+            mon.name = evo["to"]
+            mon.sprite_path = evo["sprite"]
+            mon.max_hp += evo["stat_bonus"]["hp"]
+            mon.hp = mon.max_hp
+            
+            if hasattr(mon, 'attack'):
+                mon.attack += evo["stat_bonus"]["attack"]
+            else:
+                mon.attack = 50 + evo["stat_bonus"]["attack"]
+            
+            self.message = f"{old_name} evolved into {mon.name}!"
+            self.message_timer = 3.0
+            Logger.info(f"{old_name} evolved to {mon.name}")
 
     @override
     def enter(self) -> None:
+        """進入戰鬥場景"""
+        # 如果沒有 game_manager，嘗試從 GameScene 獲取
+        if self.game_manager is None:
+            from src.scenes.game_scene import GameScene
+            # 直接從 scene_manager._scenes 獲取
+            if "game" in scene_manager._scenes:
+                game_scene = scene_manager._scenes["game"]
+                if isinstance(game_scene, GameScene) and hasattr(game_scene, 'game_manager'):
+                    self.game_manager = game_scene.game_manager
+                    Logger.info("BattleScene: Got game_manager from GameScene")
+        
+        if self.game_manager is None:
+            Logger.error("BattleScene: No game_manager available!")
+            scene_manager.change_scene("game")
+            return
+        
         sound_manager.play_bgm("RBY 107 Battle! (Trainer).ogg")
         sound_manager.set_bgm_volume(GameSettings.AUDIO_VOLUME)
         
         # 重置戰鬥狀態
         self.turn = "player"
-        self.battle_state = "choose_action"
-        self.message = "A wild enemy appeared!"
-        self.message_timer = 2.0
+        self.battle_state = "choose_monster"
+        self.message = "Choose your monster!"
+        self.message_timer = 2.2
+        self.player_attack_buff = 0
+        self.player_defense_buff = 0
+        self.item_menu_open = False
+        self.selected_monster_index = None
+        self.player_monster = None
+        
+        # 生成隨機敵人
+        self.generate_random_enemy()
+        self.load_enemy_sprite()
+
+    def load_enemy_sprite(self):
+        """只載入敵人圖片"""
+        try:
+            self.enemy_sprite = pg.image.load(
+                "assets/images/" + self.enemy_monster["sprite_path"]
+            ).convert_alpha()
+            self.enemy_sprite = pg.transform.scale(self.enemy_sprite, (150, 150))
+        except Exception as e:
+            Logger.error(f"Failed to load enemy sprite: {e}")
+            self.enemy_sprite = None
 
     @override
     def exit(self) -> None:
-        pass
+        """離開戰鬥場景"""
+        self.restore_monsters()
 
     @override
     def update(self, dt: float):
+        """更新戰鬥邏輯"""
+        # Shake timer
+        if self.enemy_shake_timer > 0:
+            self.enemy_shake_timer -= dt
+        if self.player_shake_timer > 0:
+            self.player_shake_timer -= dt
+        # 怪獸選擇階段
+        if self.battle_state == "choose_monster":
+            for i, btn in enumerate(self.monster_select_buttons):
+                if i < len(self.game_manager.bag._monsters_data):
+                    btn.update(dt)
+            return
+        
         # 更新訊息計時器
         if self.message_timer > 0:
             self.message_timer -= dt
             
-            # 當訊息顯示完畢且在攻擊狀態，執行敵人攻擊
-            if self.message_timer <= 0 and self.battle_state == "attacking":
-                if self.turn == "enemy":
-                    self.enemy_attack()
-                elif self.turn == "player":
-                    self.battle_state = "choose_action"
+            if self.message_timer > 0:
+                pass   # 有文字時，不跑後續
+            else:
+                self.message = ""
         
-        # 遊戲結束後自動返回
+        if self.battle_state == "item_used":
+            if self.message_timer <= 0:
+                self.battle_state = "enemy_attack_start"
+            return
+        
+        if self.battle_state == "player_anim":
+            if self.current_player_anim:
+                self.current_player_anim.update(dt)
+            if self.message_timer <= 0:
+                self.play_player_attack_anim = False
+                if self.enemy_monster["hp"] <= 0:
+                    self.message = "Enemy fainted!"
+                    self.message_timer = 2.5
+                    self.battle_state = "game_over"
+                else:
+                    self.turn = "enemy"
+                    self.battle_state = "enemy_attack_start"
+            return
+
+        if self.battle_state == "enemy_attack_start":
+            self.enemy_attack()
+            return
+
+        if self.battle_state == "enemy_anim":
+            if self.current_enemy_anim:
+                self.current_enemy_anim.update(dt)
+            if self.message_timer <= 0:
+                self.play_enemy_attack_anim = False
+                if self.player_monster["hp"] <= 0:
+                    self.message = "You fainted!"
+                    self.message_timer = 2.5
+                    self.battle_state = "game_over"
+                else:
+                    self.turn = "player"
+                    self.battle_state = "choose_action"
+                    self.message = "What will you do?"
+
+            return
+
+
+        # 遊戲結束
         if self.battle_state == "game_over" and self.message_timer <= 0:
+            self.try_evolve()
             scene_manager.change_scene("game")
         
-        # 只在玩家回合且選擇動作時更新按鈕
-        if self.turn == "player" and self.battle_state == "choose_action":
+        # 更新按鈕
+        if self.battle_state == "choose_action":
             self.attack_button.update(dt)
-            self.run_button.update(dt)
             self.item_button.update(dt)
+            self.run_button.update(dt)
+            if self.item_menu_open:
+                for btn in self.item_buttons:
+                    btn.update(dt)
+                return
 
     @override
-    def draw(self, screen: pg.Surface) -> None:
+    def draw(self, screen):
+        """繪製戰鬥畫面"""
         self.background.draw(screen)
-        
-        '''# 繪製戰鬥區域背景
-        battle_bg = pg.Surface((1000, 450))
-        battle_bg.set_alpha(200)
-        battle_bg.fill((50, 50, 50))
-        screen.blit(battle_bg, (200, 100))'''
-        
-        # 繪製敵人怪獸（右上）
-        if self.enemy_sprite:
-            screen.blit(self.enemy_sprite, (900, 100))
-        
-        # 繪製敵人資訊
-        enemy_name = self.font_medium.render(self.enemy_monster["name"], True, (255, 255, 255))
-        screen.blit(enemy_name, (850, 50))
-        
-        # 敵人 HP 條
-        hp_ratio = self.enemy_monster["hp"] / self.enemy_monster["max_hp"]
-        self.draw_hp_bar(screen, 650, 280, 200, 20, hp_ratio)
-        enemy_hp_text = self.font_small.render(
-            f"HP: {self.enemy_monster['hp']}/{self.enemy_monster['max_hp']}", 
-            True, (255, 255, 255)
-        )
-        screen.blit(enemy_hp_text, (650, 305))
-        
-        # 繪製玩家怪獸（左下）
-        if self.player_sprite:
-            screen.blit(self.player_sprite, (150, 250))
-        
-        # 繪製玩家資訊
-        player_name = self.font_small.render(self.player_monster["name"], True, (255, 255, 255))
-        screen.blit(player_name, (100, 400))
-        
-        # 玩家 HP 條
-        hp_ratio = self.player_monster["hp"] / self.player_monster["max_hp"]
-        self.draw_hp_bar(screen, 100, 450, 200, 20, hp_ratio)
-        player_hp_text = self.font_small.render(
-            f"HP: {self.player_monster['hp']}/{self.player_monster['max_hp']}", 
-            True, (255, 255, 255)
-        )
-        screen.blit(player_hp_text, (100, 475))
-        
-        # 繪製訊息框
-        message_bg = pg.Surface((1280, 200))
-        message_bg.set_alpha(220)
-        message_bg.fill((30, 30, 30))
-        screen.blit(message_bg, (0, 500))
-        
-        # 繪製訊息文字
-        message_text = self.font_medium.render(self.message, True, (255, 255, 255))
-        screen.blit(message_text, (200, 520))
-        
-        # 繪製回合指示器
-        turn_text = self.font_small.render(
-            f"Turn: {self.turn.upper()}", 
-            True, (255, 255, 0)
-        )
-        screen.blit(turn_text, (450, 20))
-        
-        # 只在玩家回合且可以選擇動作時顯示按鈕
-        if self.turn == "player" and self.battle_state == "choose_action" and self.message_timer <= 0:
-            # 繪製按鈕背景和文字
-            self.attack_button.draw(screen)
-            attack_text = self.font_small.render("ATTACK", True, (0, 0, 0))
-            screen.blit(attack_text, (410, 590))
-            
-            self.run_button.draw(screen)
-            run_text = self.font_small.render("RUN", True, (0, 0, 0))
-            screen.blit(run_text, (650, 590))
-            
-            self.item_button.draw(screen)
-            item_text = self.font_small.render("ITEM", True, (0, 0, 0))
-            screen.blit(item_text, (890, 590))
 
-    def draw_hp_bar(self, screen, x, y, width, height, ratio):
-        """繪製 HP 血條"""
-        # 背景（紅色）
-        pg.draw.rect(screen, (200, 0, 0), (x, y, width, height))
+        # 怪獸選擇畫面
+        if self.battle_state == "choose_monster":
+            self.draw_monster_selection(screen)
+            return
+
+        # 繪製敵人
+        if self.enemy_sprite:
+            offset = -5 if self.enemy_shake_timer > 0 else 0
+            screen.blit(self.enemy_sprite, (900 + offset, 100))
         
-        # HP（綠色到黃色到紅色）
-        if ratio > 0.5:
-            color = (0, 255, 0)  # 綠色
-        elif ratio > 0.2:
-            color = (255, 255, 0)  # 黃色
+        # 繪製敵人攻擊動畫
+        if self.play_enemy_attack_anim and self.current_enemy_anim:
+            self.current_enemy_anim.draw(screen, 700, 180, scale=5)
+
+        # 繪製玩家
+        if self.player_sprite:
+            offset = -5 if self.player_shake_timer > 0 else 0
+            screen.blit(self.player_sprite, (150 + offset, 250))
+        
+        # 繪製玩家攻擊動畫
+        if self.play_player_attack_anim and self.current_player_anim:
+            self.current_player_anim.draw(screen, 350, 250, scale=5, flip=True)
+
+        # HP條
+        self.draw_hp_bar(screen, 650, 280, 200, 20, 
+                        self.enemy_monster["hp"]/self.enemy_monster["max_hp"])
+        self.draw_hp_bar(screen, 100, 450, 200, 20, 
+                        self.player_monster["hp"]/self.player_monster["max_hp"])
+
+        # 怪獸資訊
+        enemy_info = self.font_small.render(
+            f"{self.enemy_monster['name']} Lv.{self.enemy_monster['level']} ({self.enemy_monster['element']})", 
+            True, (255, 255, 255)
+        )
+        screen.blit(enemy_info, (650, 250))
+        
+        player_info = self.font_small.render(
+            f"{self.player_monster['name']} Lv.{self.player_monster['level']} ({self.player_monster['element']})", 
+            True, (255, 255, 255)
+        )
+        screen.blit(player_info, (100, 420))
+
+        # 訊息框
+        box = pg.Surface((1280, 200))
+        box.set_alpha(180)
+        box.fill((30, 30, 30))
+        screen.blit(box, (0, 500))
+
+        msg = self.font_medium.render(self.message, True, (255, 255, 255))
+        screen.blit(msg, (80, 530))
+
+        # UI按鈕
+        if not self.item_menu_open:
+            if self.turn == "player" and self.battle_state == "choose_action":
+                self.attack_button.draw(screen)
+                self.item_button.draw(screen)
+                self.run_button.draw(screen)
+
+                screen.blit(self.font_small.render("Attack", True, (0, 0, 0)), (430, 590))
+                screen.blit(self.font_small.render("Items", True, (0, 0, 0)), (585, 590))
+                screen.blit(self.font_small.render("Run", True, (0, 0, 0)), (735, 590))
         else:
-            color = (255, 0, 0)  # 紅色
-            
-        pg.draw.rect(screen, color, (x, y, width * ratio, height))
+            # --- 背景遮罩 ---
+            overlay = pg.Surface((1280, 720), pg.SRCALPHA)
+            overlay.fill((0, 0, 0, 180))
+            screen.blit(overlay, (0, 0))
+
+            # --- 菜單視窗 ---
+            menu_w, menu_h = 450, 300
+            menu_x = (1280 - menu_w) // 2
+            menu_y = (720 - menu_h) // 2
+
+            menu_bg = pg.Surface((menu_w, menu_h))
+            menu_bg.fill((50, 50, 60))
+            pg.draw.rect(menu_bg, (255, 255, 255), (0, 0, menu_w, menu_h), 4)
+            screen.blit(menu_bg, (menu_x, menu_y))
+
+            # --- 標題 ---
+            title = self.font_medium.render("Choose an Item", True, (255, 255, 100))
+            screen.blit(title, (menu_x + menu_w//2 - title.get_width()//2, menu_y + 20))
+
+            # --- 更新按鈕位置（置中） ---
+            btn_w, btn_h = 250, 50
+            start_y = menu_y + 90
+
+            for i, btn in enumerate(self.item_buttons):
+                btn.rect.x = menu_x + (menu_w - btn_w)//2
+                btn.rect.y = start_y + i * 70
+                btn.rect.width = btn_w
+                btn.rect.height = btn_h
+
+                btn.draw(screen)
+
+                txt = ["Potion", "Strength Potion", "Defense Potion"][i]
+                label = self.font_small.render(txt, True, (0, 0, 0))
+                screen.blit(label, (btn.rect.x + btn_w//2 - label.get_width()//2,
+                                    btn.rect.y + btn_h//2 - label.get_height()//2))
+
+    def draw_monster_selection(self, screen):
+        """繪製怪獸選擇畫面"""
+        # 半透明背景
+        overlay = pg.Surface((1280, 720))
+        overlay.set_alpha(200)
+        overlay.fill((20, 20, 40))
+        screen.blit(overlay, (0, 0))
         
-        # 邊框
-        pg.draw.rect(screen, (255, 255, 255), (x, y, width, height), 2)
+        # 標題
+        title = self.font_large.render("Choose Your Monster!", True, (255, 255, 100))
+        screen.blit(title, (400, 80))
+        
+        # 敵人預覽
+        enemy_text = self.font_medium.render(
+            f"VS: {self.enemy_monster['name']} Lv.{self.enemy_monster['level']}", 
+            True, (255, 100, 100)
+        )
+        screen.blit(enemy_text, (450, 130))
+        
+        monsters = self.game_manager.bag._monsters_data
+        
+        for i, btn in enumerate(self.monster_select_buttons):
+            if i >= len(monsters):
+                break
+            
+            mon = monsters[i]
+            btn.draw(screen)
+            
+            # 怪獸圖片
+            try:
+                img = pg.image.load("assets/images/" + mon.sprite_path).convert_alpha()
+                img = pg.transform.scale(img, (60, 60))
+                screen.blit(img, (btn.rect.x + 10, btn.rect.y + 20))
+            except:
+                pass
+            
+            # 怪獸資訊
+            name_text = self.font_small.render(mon.name, True, (0, 0, 0))
+            screen.blit(name_text, (btn.rect.x + 80, btn.rect.y + 15))
+            
+            level_text = self.font_small.render(f"Lv.{mon.level}", True, (0, 0, 0))
+            screen.blit(level_text, (btn.rect.x + 80, btn.rect.y + 40))
+            
+            element_text = self.font_small.render(mon.element, True, (0, 0, 0))
+            screen.blit(element_text, (btn.rect.x + 80, btn.rect.y + 65))
+
+    def draw_hp_bar(self, screen, x, y, w, h, ratio):
+        """繪製HP條"""
+        pg.draw.rect(screen, (200, 0, 0), (x, y, w, h))
+        pg.draw.rect(screen, (0, 255, 0), (x, y, w * ratio, h))
+        pg.draw.rect(screen, (255, 255, 255), (x, y, w, h), 2)
