@@ -1,0 +1,163 @@
+{
+  "map": [
+    {
+      "path": "map.tmx",
+      "teleport": [
+        {
+          "x": 24,
+          "y": 23,
+          "destination": "gym.tmx"
+        }
+      ],
+      "player": {
+        "x": 15.0,
+        "y": 29.0
+      },
+      "enemy_trainers": [
+        {
+          "x": 24.0,
+          "y": 29.0,
+          "classification": "moving",
+          "facing": "DOWN",
+          "max_tiles": 2
+        },
+        {
+          "x": 54.0,
+          "y": 16.0,
+          "classification": "stationary",
+          "facing": "RIGHT",
+          "max_tiles": 2
+        },
+        {
+          "x": 31.0,
+          "y": 31.0,
+          "classification": "moving",
+          "facing": "UP",
+          "max_tiles": 2
+        },
+        {
+          "x": 10,
+          "y": 8,
+          "classification": "moving",
+          "max_tiles": 3,
+          "facing": "UP"
+        }
+      ]
+    },
+    {
+      "path": "gym.tmx",
+      "teleport": [
+        {
+          "x": 11,
+          "y": 14,
+          "destination": "map.tmx"
+        },
+        {
+          "x": 12,
+          "y": 14,
+          "destination": "map.tmx"
+        },
+        {
+          "x": 13,
+          "y": 14,
+          "destination": "map.tmx"
+        }
+      ],
+      "player": {
+        "x": 12,
+        "y": 12
+      },
+      "enemy_trainers": []
+    }
+  ],
+  "current_map": "map.tmx",
+  "player": {
+    "x": 15.912028570699732,
+    "y": 29.56002857069975
+  },
+  "bag": {
+    "monsters": [
+      {
+        "name": "Pikachu",
+        "hp": 85,
+        "max_hp": 100,
+        "level": 9,
+        "sprite_path": "menu_sprites/menusprite1.png",
+        "element": "Grass"
+      },
+      {
+        "name": "Charizard",
+        "hp": 150,
+        "max_hp": 200,
+        "level": 36,
+        "sprite_path": "menu_sprites/menusprite2.png",
+        "element": "Grass"
+      },
+      {
+        "name": "Blastoise",
+        "hp": 120,
+        "max_hp": 180,
+        "level": 32,
+        "sprite_path": "menu_sprites/menusprite3.png",
+        "element": "Grassr"
+      },
+      {
+        "name": "Venusaur",
+        "hp": 90,
+        "max_hp": 160,
+        "level": 30,
+        "sprite_path": "menu_sprites/menusprite4.png",
+        "element": "Land"
+      },
+      {
+        "name": "Gengar", 
+        "hp": 110,
+        "max_hp": 140,
+        "level": 28,
+        "sprite_path": "menu_sprites/menusprite5.png",
+        "element": "Electric"
+      },
+      {
+        "name": "Dragonite",
+        "hp": 180,
+        "max_hp": 220,
+        "level": 40,
+        "sprite_path": "menu_sprites/menusprite6.png",
+        "element": "Ice"
+      },
+      {
+        "name": "Pikachu",
+        "hp": 60,
+        "max_hp": 60,
+        "level": 6,
+        "sprite_path": "menu_sprites/menusprite1.png",
+        "element": "Water"
+      }
+    ],
+    "items": [
+      {
+        "name": "Potion",
+        "count": 5,
+        "sprite_path": "ingame_ui/potion.png"
+      },
+      {
+        "name": "Coins",
+        "count": 3,
+        "sprite_path": "ingame_ui/coin.png"
+      },
+      {
+        "name": "Pokeball",
+        "count": 8,
+        "sprite_path": "ingame_ui/ball.png"
+      },
+      {"name": "Strength Potion",
+       "count": 2,
+      "sprite_path": "ingame_ui/options1.png"
+      },
+      {"name": "Defense Potion",  
+      "count": 2, 
+      "sprite_path": "ingame_ui/options2.png"
+      }
+    ]
+  }
+}
