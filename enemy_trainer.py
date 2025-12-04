@@ -13,11 +13,46 @@ from src.utils import GameSettings, Direction, Position, PositionCamera
 
 class EnemyTrainerClassification(Enum):
     STATIONARY = "stationary" #固定不動的 NPC
-
+    MOVING = "moving"
 @dataclass
 class IdleMovement: #????damnnn我可以加移動敵人，臣妾做不到
-    def update(self, enemy: "EnemyTrainer", dt: float) -> None:
+    def update(self, enemy, dt):
         return
+
+@dataclass
+class PatrolMovement:
+    speed: float = 1.2 * GameSettings.TILE_SIZE   # 每秒移動速度
+    direction: Direction = Direction.LEFT         # 初始方向
+    distance: float = 0                           # 已走距離（像素）
+    max_tiles: int = 2                            # 最大巡邏格數
+
+    def update(self, enemy: "EnemyTrainer", dt: float) -> None:
+        step = self.speed * dt
+        enemy_rect = pygame.Rect(enemy.position.x, enemy.position.y,
+                                 GameSettings.TILE_SIZE, GameSettings.TILE_SIZE)
+
+        # 水平巡邏
+        if self.direction == Direction.LEFT:
+            enemy.position.x -= step
+            self.distance += step
+
+            if self.distance >= self.max_tiles * GameSettings.TILE_SIZE:
+                self.direction = Direction.RIGHT
+                self.distance = 0
+                enemy._set_direction(Direction.RIGHT)
+
+        elif self.direction == Direction.RIGHT:
+            enemy.position.x += step
+            self.distance += step
+
+            if self.distance >= self.max_tiles * GameSettings.TILE_SIZE:
+                self.direction = Direction.LEFT
+                self.distance = 0
+                enemy._set_direction(Direction.LEFT)
+
+        # 更新動作位置
+        enemy.animation.update_pos(enemy.position)
+
 
 class EnemyTrainer(Entity):
     classification: EnemyTrainerClassification
@@ -38,18 +73,33 @@ class EnemyTrainer(Entity):
         facing: Direction | None = None,
     ) -> None:
         super().__init__(x, y, game_manager)
+        self.warning_sign = Sprite(
+            "exclamation.png",
+            (GameSettings.TILE_SIZE // 2, GameSettings.TILE_SIZE // 2)
+        )
+        self.warning_sign.update_pos(Position(
+            x + GameSettings.TILE_SIZE // 4,
+            y - GameSettings.TILE_SIZE // 2
+        ))
+        self.detected = False
+
         self.classification = classification
         self.max_tiles = max_tiles
         if classification == EnemyTrainerClassification.STATIONARY:
             self._movement = IdleMovement()
             if facing is None:
-                raise ValueError("Idle EnemyTrainer requires a 'facing' Direction at instantiation")
+                raise ValueError("Idle EnemyTrainer requires a 'facing' Direction")
             self._set_direction(facing)
+        
+        elif classification == EnemyTrainerClassification.MOVING:
+            # 巡邏預設左右往返
+            self._movement = PatrolMovement(max_tiles=max_tiles)
+            if facing is None:
+                facing = Direction.LEFT
+            self._set_direction(facing)
+
         else:
             raise ValueError("Invalid classification")
-        self.warning_sign = Sprite("exclamation.png", (GameSettings.TILE_SIZE // 2, GameSettings.TILE_SIZE // 2))
-        self.warning_sign.update_pos(Position(x + GameSettings.TILE_SIZE // 4, y - GameSettings.TILE_SIZE // 2))
-        self.detected = False
 
     @override
     def update(self, dt: float) -> None:
@@ -140,17 +190,22 @@ class EnemyTrainer(Entity):
     @classmethod
     @override
     def from_dict(cls, data: dict, game_manager: GameManager) -> "EnemyTrainer":
-        classification = EnemyTrainerClassification(data.get("classification", "stationary"))
-        max_tiles = data.get("max_tiles")
-        facing_val = data.get("facing")
-        facing: Direction | None = None
-        if facing_val is not None:
-            if isinstance(facing_val, str):
-                facing = Direction[facing_val]
-            elif isinstance(facing_val, Direction):
-                facing = facing_val
-        if facing is None and classification == EnemyTrainerClassification.STATIONARY:
+        raw = data.get("classification", "stationary")
+
+        try:
+            classification = EnemyTrainerClassification(raw)
+        except ValueError:
+            classification = EnemyTrainerClassification.STATIONARY
+        
+        max_tiles = data.get("max_tiles", 2)
+
+        facing_raw = data.get("facing", "DOWN")
+        
+        try:
+            facing = Direction[facing_raw]
+        except KeyError:
             facing = Direction.DOWN
+            
         return cls(
             data["x"] * GameSettings.TILE_SIZE,
             data["y"] * GameSettings.TILE_SIZE,

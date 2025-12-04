@@ -189,6 +189,17 @@ class SettingScene(Scene):
        
 
 
-
+    @override
+    def handle_event(self, event: pg.event.Event) -> None:
+        """處理場景專屬的事件，例如按鈕點擊和滑塊操作。"""
+        # 可選的除錯輸出，用於確認事件被接收
+        print("[SettingScene] Event:", event) 
+        
+        # 將事件傳遞給場景中的所有可互動 UI 元件
+        # 這些元件需要處理滑鼠點擊、拖曳等事件
+        self.back_button.handle_event(event)
+        self.volume_slider.handle_event(event)
+        # 由於您在 update 中使用了 mute_button，這裡也應將事件傳遞給它
+        self.mute_button.handle_event(event)
 
 

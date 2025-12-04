@@ -3,12 +3,14 @@ from src.utils import Logger, GameSettings, Position, Teleport
 import json, os
 import pygame as pg
 from typing import TYPE_CHECKING
+from src.data.evolution import EvolutionManager
 
 if TYPE_CHECKING:
     from src.maps.map import Map
     from src.entities.player import Player
     from src.entities.enemy_trainer import EnemyTrainer
     from src.data.bag import Bag
+
 
 class GameManager:
     # Entities
@@ -36,7 +38,11 @@ class GameManager:
         self.player = player # class player
         self.enemy_trainers = enemy_trainers
         self.bag = bag if bag is not None else Bag([], [])
-        
+
+        # ★ NEW: 初始化 EvolutionManager
+        self.evolution_manager = EvolutionManager()
+        self.bag.set_game_manager(self) # 將 GameManager 傳給 Bag
+        # ...
         # Check If you should change scene
         self.should_change_scene = False
         self.next_map = ""
@@ -57,6 +63,7 @@ class GameManager:
                                                 #(我的class)Teleport(x=5, y=10, destination="house1")
                                                 #但尷尬的是我用的很混亂，我一開始沒發現defintion裡面有class teleport
     
+    #switch_map 設置下次更新時需要切換地圖的旗標 (self.should_change_scene = True) 和目標地圖名稱 (self.next_map)。try_switch_map 則在旗標為 True 時，實際切換 current_map_key 並將玩家移動到新地圖的出生點 (spawn)。
     def switch_map(self, target: str) -> None:
         if target not in self.maps:
             Logger.warning(f"Map '{target}' not loaded; cannot switch.")
@@ -192,5 +199,7 @@ class GameManager:
         Logger.info("Loading bag")
         from src.data.bag import Bag as _Bag
         gm.bag = Bag.from_dict(data.get("bag", {})) if data.get("bag") else _Bag([], [])
+
+        gm.bag.set_game_manager(gm)
 
         return gm

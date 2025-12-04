@@ -2,7 +2,7 @@ from __future__ import annotations
 import pygame as pg
 from .entity import Entity
 from src.core.services import input_manager
-from src.utils import Position, PositionCamera, GameSettings, Logger
+from src.utils import Position, PositionCamera, GameSettings, Logger, Direction
 from src.core import GameManager
 import math
 from typing import override
@@ -45,12 +45,20 @@ class Player(Entity):
         
         if input_manager.key_down(pg.K_LEFT) or input_manager.key_down(pg.K_a):
             dis.x -= 1
+            self.direction = Direction.LEFT
+            self.animation.switch("left")
         if input_manager.key_down(pg.K_RIGHT) or input_manager.key_down(pg.K_d):
             dis.x += 1
+            self.direction = Direction.RIGHT
+            self.animation.switch("right")  
         if input_manager.key_down(pg.K_UP) or input_manager.key_down(pg.K_w):
             dis.y -= 1
+            self.direction = Direction.UP
+            self.animation.switch("up")
         if input_manager.key_down(pg.K_DOWN) or input_manager.key_down(pg.K_s):
             dis.y += 1
+            self.direction = Direction.DOWN
+            self.animation.switch("down")
         
         
         #print(f"dis before normalize: {dis.x}, {dis.y}")
@@ -89,14 +97,14 @@ class Player(Entity):
             self.position.y = self._snap_to_grid(self.position.y)
 
 
-        # Check teleportation
+        # Check teleportation 角色移動的更新迴圈，實際觸發傳送邏輯。它會呼叫 current_map.check_telepor
         tp = self.game_manager.current_map.check_teleport(self.position)
         if tp:
             #dest = tp.destination
             #self.game_manager.switch_map(dest)
                               #切地圖的入口開關
                                         # json裡面喔 tp["destination"]
-            self.game_manager.switch_map(tp["destination"])
+            self.game_manager.switch_map(tp.destination)
 
         super().update(dt)
 
