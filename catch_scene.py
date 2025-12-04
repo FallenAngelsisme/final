@@ -216,3 +216,5 @@ class CatchPokemonScene(Scene):
                 True, (255, 255, 255)
             )
             screen.blit(attempts_text, (550, 560))
+
+    

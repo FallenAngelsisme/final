@@ -36,7 +36,8 @@ class BattleScene(Scene):
         # 當前戰鬥中的怪獸
         self.player_monster = None
         self.enemy_monster = None
-        
+        self.old_level = 0 # ★ NEW:
+
         # Buff系統
         self.player_attack_buff = 0
         self.player_defense_buff = 0
@@ -120,7 +121,7 @@ class BattleScene(Scene):
     def generate_random_enemy(self):
         """隨機生成野生敵人"""
         template = random.choice(self.wild_monster_pool)
-        level = random.randint(20, 40)
+        level = random.randint(10, 20)
         
         self.enemy_monster = {
             "name": template["name"],
@@ -336,38 +337,6 @@ class BattleScene(Scene):
         self.turn = "enemy"
         self.battle_state = "item_used"
            
-    def try_evolve(self):
-        """嘗試進化玩家的怪獸"""
-        if self.selected_monster_index is None:
-            return
-        
-        # 找到原始怪獸數據
-        if self.selected_monster_index >= len(self.game_manager.bag._monsters_data):
-            return
-        
-        mon = self.game_manager.bag._monsters_data[self.selected_monster_index]
-        name = mon.name
-        
-        if name not in EVOLUTION_DATA:
-            return
-        
-        evo = EVOLUTION_DATA[name]
-        if mon.level >= evo["level"]:
-            # 進化！
-            old_name = mon.name
-            mon.name = evo["to"]
-            mon.sprite_path = evo["sprite"]
-            mon.max_hp += evo["stat_bonus"]["hp"]
-            mon.hp = mon.max_hp
-            
-            if hasattr(mon, 'attack'):
-                mon.attack += evo["stat_bonus"]["attack"]
-            else:
-                mon.attack = 50 + evo["stat_bonus"]["attack"]
-            
-            self.message = f"{old_name} evolved into {mon.name}!"
-            self.message_timer = 3.0
-            Logger.info(f"{old_name} evolved to {mon.name}")
 
     @override
     def enter(self) -> None:
@@ -456,9 +425,9 @@ class BattleScene(Scene):
             if self.message_timer <= 0:
                 self.play_player_attack_anim = False
                 if self.enemy_monster["hp"] <= 0:
-                    self.message = "Enemy fainted!"
-                    self.message_timer = 2.5
-                    self.battle_state = "game_over"
+
+                    self._handle_win()
+        
                 else:
                     self.turn = "enemy"
                     self.battle_state = "enemy_attack_start"
@@ -487,7 +456,7 @@ class BattleScene(Scene):
 
         # 遊戲結束
         if self.battle_state == "game_over" and self.message_timer <= 0:
-            self.try_evolve()
+            
             scene_manager.change_scene("game")
         
         # 更新按鈕
@@ -654,3 +623,54 @@ class BattleScene(Scene):
         pg.draw.rect(screen, (200, 0, 0), (x, y, w, h))
         pg.draw.rect(screen, (0, 255, 0), (x, y, w * ratio, h))
         pg.draw.rect(screen, (255, 255, 255), (x, y, w, h), 2)
+
+
+    # ★ NEW: 戰鬥勝利後的處理邏輯 (Requirement 1 & 2)
+    def _handle_win(self):
+        # 1. 處理戰鬥中的怪獸升級和回血
+        if self.player_monster and self.selected_monster_index is not None:
+            # 取得 Bag 中的怪獸實例，確保永久修改
+            monster_in_bag = self.game_manager.bag._monsters_data[self.selected_monster_index]
+            
+            # 紀錄升級前等級
+            self.old_level = monster_in_bag.level # ★
+
+            # 升級
+            monster_in_bag.level += 1
+            
+            # 血量更新至生命最大值
+            monster_in_bag.hp = monster_in_bag.max_hp
+            
+            Logger.info(f"{monster_in_bag.name} leveled up to Lv.{monster_in_bag.level} and was healed to max HP.")
+            
+            self.evolution_message = None
+            if self.game_manager and self.game_manager.evolution_manager:
+                if self.game_manager.evolution_manager.can_evolve(monster_in_bag):
+                    # ★ NEW: 如果可以進化，則提示玩家
+                    self.evolution_message = f"{monster_in_bag.name} is ready to Evolve!"
+                    
+            # 3. 處理金錢獎勵 (假設固定獎勵 25)
+            money_reward = 25 
+            if self.game_manager and self.game_manager.bag:
+                self.game_manager.bag.add_money(money_reward)
+            
+            # 4. 設置勝利和升級訊息
+            self.battle_state = "game_over" 
+            
+            # ★ MODIFIED: 顯示升級資訊，如果同時有進化提示則組合
+            level_msg = f"{monster_in_bag.name} LV UP! ({self.old_level} -> {monster_in_bag.level}) Reward: {money_reward} Money."
+            
+            if self.evolution_message:
+                # 如果有進化提示，則將升級訊息和進化提示組合起來
+                self.message = level_msg + " " + self.evolution_message
+            else:
+                self.message = level_msg
+                
+            self.message_timer = 5.0
+            
+        else:
+            self.battle_state = "game_over" 
+            self.message = "Battle ended."
+            self.message_timer = 3.0
+
+    

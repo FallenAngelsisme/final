@@ -53,6 +53,7 @@ class SceneManager:
             
         # Clear the transition request
         self._next_scene = None
-
+    def get_current_scene(self) -> Scene | None:
+        return self._current_scene
 #enemy
 scene_manager = SceneManager()

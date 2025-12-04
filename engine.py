@@ -60,6 +60,8 @@ class Engine:
                 self.running = False
             input_manager.handle_events(event)
 
+        
+
     def update(self, dt: float):
         scene_manager.update(dt)
 
