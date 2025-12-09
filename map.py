@@ -19,7 +19,7 @@ class Map:
         self.tmxdata = load_tmx(path)
         self.spawn = spawn
         self.teleporters = tp # 這裡就是傳送點列表!!
-
+        self.npcs = []
         pixel_w = self.tmxdata.width * GameSettings.TILE_SIZE
         pixel_h = self.tmxdata.height * GameSettings.TILE_SIZE
 
@@ -30,6 +30,7 @@ class Map:
         self._collision_map = self._create_collision_map()
         # catch  the collision map
         self._bush_map = self._create_bush_map()
+        
 
     def update(self, dt: float):
         return
@@ -62,18 +63,16 @@ class Map:
         '''[TODO HACKATHON 6] 
         Teleportation: Player can enter a building by walking into certain tiles defined inside saves/*.json, and the map will be changed
         Hint: Maybe there is an way to switch the map using something from src/core/managers/game_manager.py called switch_... 
-        '''
+        負責檢查玩家的當前位置 (pos) 是否與地圖中定義的任何一個傳送點 (self.teleporters) 的矩形範圍相交。如果相交，則返回對應的 Teleport 物件。'''
         #玩家在地圖上的碰撞矩形                           #TILE_SIZE是格子大小
         player_rect = pg.Rect(pos.x, pos.y, GameSettings.TILE_SIZE, GameSettings.TILE_SIZE)
-
+        
         # teleporters 現在是dicts  dict有x,y,destination
         #self.teleporters 是json讀取"teleport"
         for tp in self.teleporters:
-
-            #傳送點的矩形
             tp_rect = pg.Rect(
-                tp["x"]* GameSettings.TILE_SIZE,
-                tp["y"]* GameSettings.TILE_SIZE,
+                tp.pos.x,
+                tp.pos.y,
                 GameSettings.TILE_SIZE,
                 GameSettings.TILE_SIZE
             )
@@ -142,25 +141,23 @@ class Map:
                         rects.append(rect)
         return rects
     
+   
+    
+    
     #
     @classmethod
     def from_dict(cls, data: dict) -> "Map":
-        
-        tp = data.get("teleport", []) #dict
+        tp_raw = data.get("teleport", [])
+        teleporters = [
+            Teleport.from_dict(tp) for tp in tp_raw
+        ]
 
         pos = Position(data["player"]["x"] * GameSettings.TILE_SIZE, data["player"]["y"] * GameSettings.TILE_SIZE)
-        return cls(data["path"], tp, pos)
+        return cls(data["path"], teleporters, pos)
 
     def to_dict(self):
         # 處理 teleporters - 可能是 dict 或 Teleport #看我之後要不要多做功能，可能就需要class teleport，GameManager.py def current_teleporter(self) -> list[Teleport] 我現在丟了dic勉強能用，但可能...要改?
-        teleport_list = []          #但，....我一開始沒發現definition有class teleport
-        for tp in self.teleporters:
-            if isinstance(tp, dict):
-                # 如果已經是 dict，直接使用
-                teleport_list.append(tp)
-            else:
-                # 如果是 class Teleport，呼叫 to_dict()
-                teleport_list.append(tp.to_dict())
+        teleport_list = [tp.to_dict() for tp in self.teleporters]        #但，....我一開始沒發現definition有class teleport
         
         return {
             "path": self.path_name,
