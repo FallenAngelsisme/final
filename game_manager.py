@@ -3,12 +3,14 @@ from src.utils import Logger, GameSettings, Position, Teleport
 import json, os
 import pygame as pg
 from typing import TYPE_CHECKING
-
+from src.data.evolution import EvolutionManager
+from src.core.services import scene_manager
 if TYPE_CHECKING:
     from src.maps.map import Map
     from src.entities.player import Player
     from src.entities.enemy_trainer import EnemyTrainer
     from src.data.bag import Bag
+
 
 class GameManager:
     # Entities
@@ -23,12 +25,16 @@ class GameManager:
     # Changing Scene properties
     should_change_scene: bool
     next_map: str
+
     
+    
+
     def __init__(self, maps: dict[str, Map], start_map: str, 
                  player: Player | None,
                  enemy_trainers: dict[str, list[EnemyTrainer]], 
                  bag: Bag | None = None):
               #外部（ GameManager.from_dict 或遊戲啟動時）傳入初始資料。
+        self.last_teleport_position = None
         self.current_map_key = start_map       
         from src.data.bag import Bag
         # Game Properties
@@ -36,11 +42,16 @@ class GameManager:
         self.player = player # class player
         self.enemy_trainers = enemy_trainers
         self.bag = bag if bag is not None else Bag([], [])
-        
+        self.npcs = {}
+        # ★ NEW: 初始化 EvolutionManager
+        self.evolution_manager = EvolutionManager()
+        self.bag.set_game_manager(self) # 將 GameManager 傳給 Bag
+        # ...
         # Check If you should change scene
         self.should_change_scene = False
         self.next_map = ""
-        
+        #bug
+        self.next_player_position: Position | None = None
     @property
     def current_map(self) -> Map:
         return self.maps[self.current_map_key]
@@ -49,6 +60,10 @@ class GameManager:
     @property
     def current_enemy_trainers(self) -> list[EnemyTrainer]:
         return self.enemy_trainers[self.current_map_key]
+    
+    @property
+    def current_npcs(self):
+        return self.npcs.get(self.current_map_key, [])
         
     @property
     def current_teleporter(self) -> list[Teleport]:
@@ -57,12 +72,14 @@ class GameManager:
                                                 #(我的class)Teleport(x=5, y=10, destination="house1")
                                                 #但尷尬的是我用的很混亂，我一開始沒發現defintion裡面有class teleport
     
-    def switch_map(self, target: str) -> None:
+    #switch_map 設置下次更新時需要切換地圖的旗標 (self.should_change_scene = True) 和目標地圖名稱 (self.next_map)。try_switch_map 則在旗標為 True 時，實際切換 current_map_key 並將玩家移動到新地圖的出生點 (spawn)。
+    def switch_map(self, target: str, spawn_pos: Position | None = None) -> None:
         if target not in self.maps:
             Logger.warning(f"Map '{target}' not loaded; cannot switch.")
             return
-        
+    
         self.next_map = target
+        self.next_player_position = spawn_pos #bug
         self.should_change_scene = True
             
     def try_switch_map(self) -> None:
@@ -71,7 +88,13 @@ class GameManager:
             self.next_map = ""
             self.should_change_scene = False
             if self.player:                                            #Spawn 是 Map 的出生位置
-                self.player.position = self.maps[self.current_map_key].spawn
+                if self.next_player_position is not None:
+                # 直接設為 pixel 座標
+                    self.player.position = self.next_player_position
+                    # clear it afterwards
+                    self.next_player_position = None
+                else:
+                    self.player.position = self.maps[self.current_map_key].spawn
             
     def check_collision(self, rect: pg.Rect) -> bool:
         if self.maps[self.current_map_key].check_collision(rect):
@@ -174,7 +197,20 @@ class GameManager:
         for m in data["map"]:
             raw_data = m["enemy_trainers"]       #還原敵人物件並存入
             gm.enemy_trainers[m["path"]] = [EnemyTrainer.from_dict(t, gm) for t in raw_data]
-        
+
+            gm.npcs[m["path"]] = []
+
+            for npc_data in m.get("npcs", []):
+                if npc_data["type"] == "shop":
+                    from src.entities.shop_npc import ShopNPC
+                    npc = ShopNPC.from_dict(npc_data, gm)
+                    gm.npcs[m["path"]].append(npc)
+
+                '''elif npc_data["type"] == "talk":
+                    from src.entities.talk_npc import TalkNPC
+                    npc = TalkNPC.from_dict(npc_data, gm)
+                    gm.npcs[m["path"]].append(npc)'''
+                        
         Logger.info("Loading Player")
         player_data = data.get("player")
 
@@ -193,4 +229,8 @@ class GameManager:
         from src.data.bag import Bag as _Bag
         gm.bag = Bag.from_dict(data.get("bag", {})) if data.get("bag") else _Bag([], [])
 
+        gm.bag.set_game_manager(gm)
+
         return gm
+    
+    

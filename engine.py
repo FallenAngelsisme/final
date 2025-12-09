@@ -8,7 +8,8 @@ from src.scenes.game_scene import GameScene
 from src.scenes.setting_scene import SettingScene
 from src.scenes.battle_scene import BattleScene
 #from src.scenes.catch_scene import CatchPokemonScene
-
+#from src.scenes.gym_scene import GymScene
+#from src.scenes.shop_scene import ShopScene
 class Engine:
 
     screen: pg.Surface              # Screen Display of the Game
@@ -30,6 +31,8 @@ class Engine:
         scene_manager.register_scene("game", GameScene())#一開始就固定存在
         scene_manager.register_scene("setting", SettingScene())#一開始就固定存在
         scene_manager.register_scene("battle", BattleScene()) #我之後可以改成動態註冊，跟catch一樣
+        
+        
         '''{
             "menu" : MenuScene(),
             "game" : GameScene(),
@@ -59,6 +62,8 @@ class Engine:
             if event.type == pg.QUIT:
                 self.running = False
             input_manager.handle_events(event)
+
+        
 
     def update(self, dt: float):
         scene_manager.update(dt)

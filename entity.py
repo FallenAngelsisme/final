@@ -16,7 +16,7 @@ class Entity:
         ####self.camera = PositionCamera(0, 0)
         
         # Sprite is only for debug, need to change into animations
-        self.animation = Animation(
+        self.animation = Animation(                             #每個方向的幀數
             "character/ow1.png", ["down", "left", "right", "up"], 4,
             (GameSettings.TILE_SIZE, GameSettings.TILE_SIZE)
         )
@@ -116,4 +116,4 @@ class Entity:
         x = float(data["x"])
         y = float(data["y"])
         return cls(x * GameSettings.TILE_SIZE, y * GameSettings.TILE_SIZE, game_manager)
-        
+         

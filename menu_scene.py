@@ -58,3 +58,12 @@ class MenuScene(Scene):
         self.background.draw(screen)
         self.play_button.draw(screen)
         self.setting_button.draw(screen)
+    
+    def handle_event(self, event: pg.event.Event) -> None:
+        """處理場景專屬的事件，例如按鈕點擊。"""
+        # 您可以加入除錯輸出
+        print("[MenuScene] Event:", event) 
+        
+        # 將事件傳遞給場景中的所有可互動 UI 元件
+        self.play_button.handle_event(event)
+        self.setting_button.handle_event(event)

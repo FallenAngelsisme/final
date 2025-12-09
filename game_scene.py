@@ -31,20 +31,28 @@ class GameScene(Scene):
         super().__init__()
 
 
+        #
+        self.warning_sign = Sprite(
+            "exclamation.png",
+            (GameSettings.TILE_SIZE // 2, GameSettings.TILE_SIZE // 2)
+        )
+        
 
 
         # Overlay 狀態
         self.is_overlay_open = False
         self.is_bag_overlay_open = False
 
-
+        # ★ NEW: 金錢 UI 
+        self.coin_icon = pg.image.load("assets/images/ingame_ui/coin.png").convert_alpha()
+        self.coin_icon = pg.transform.scale(self.coin_icon, (30, 30))
 
         #buttom
         px, py = GameSettings.SCREEN_WIDTH // 2, GameSettings.SCREEN_HEIGHT // 2
         self.bag = Button(
             "UI/button_backpack.png", "UI/button_backpack_hover.png",
             GameSettings.SCREEN_WIDTH-170, 20, 60, 60,# x, y 座標
-            self.open_bag_overlay
+            self.open_bag
             #lambda: scene_manager.change_scene("game")
         )#my2
         self.setting_button = Button(
@@ -59,11 +67,7 @@ class GameScene(Scene):
             60, 60,
             self.close_overlay
         )
-        self.btn_bag_close = Button(
-            "UI/button_x.png", "UI/button_x_hover.png",
-            930, 140, 50, 50,
-            self.close_bag_overlay
-        )
+        
         self.save_button = Button(
             "UI/button_save.png","UI/button_save_hover.png",
             x=300, y=360, width=60, height=60,
@@ -79,8 +83,7 @@ class GameScene(Scene):
         #
         
 
-        self.bg_image = pg.image.load("assets/images/UI/raw/UI_Flat_Frame03a.png").convert_alpha()
-        self.bg_image = pg.transform.scale(self.bg_image, (800, 520))  # 寬高
+        
 
         self.back_image = pg.image.load("assets/images/UI/raw/UI_Flat_Frame03a.png").convert_alpha()
         self.back_image = pg.transform.scale(self.back_image, (800, 520))  # 寬高
@@ -155,10 +158,9 @@ class GameScene(Scene):
     def close_overlay(self):
         self.is_overlay_open = False
 
-    def open_bag_overlay(self):
-        self.is_bag_overlay_open = True
-    def close_bag_overlay(self):
-        self.is_bag_overlay_open = False
+    def open_bag(self):
+        self.game_manager.bag.toggle()
+
 
 
     def toggle_mute(self):
@@ -262,6 +264,14 @@ class GameScene(Scene):
                 
                 scene_manager.change_scene("battle") 
 
+        for npc in self.game_manager.current_npcs:
+            npc.update(dt)
+            if npc.detected and input_manager.key_pressed(pygame.K_SPACE):
+    
+                from src.scenes.shop_scene import ShopScene
+                scene_manager.register_scene("shop", ShopScene(self.game_manager))
+                scene_manager.change_scene("shop")
+
         if self.game_manager.player:
             player_rect = pg.Rect(
                 self.game_manager.player.position.x,
@@ -289,9 +299,10 @@ class GameScene(Scene):
         self.setting_button.update(dt)#my2
         self.bag.update(dt)#my2
        
-        if self.is_bag_overlay_open:
-            self.btn_bag_close.update(dt)
-       
+        if self.game_manager.bag.visible:
+            self.game_manager.bag.update(dt)
+            return
+        
         if self.is_overlay_open:
             self.btn_back.update(dt)
             self.load_button.update(dt)
@@ -313,16 +324,18 @@ class GameScene(Scene):
                     GameSettings.AUDIO_VOLUME = self.volume_slider.value
 
         
+        
+
+        
 
          # 更新訊息計時器
         if self.message_timer > 0:
             self.message_timer -= dt
-
-        
             
 
     @override
-    def draw(self, screen: pg.Surface):        
+    def draw(self, screen: pg.Surface):  
+        player = self.game_manager.player      
         if self.game_manager.player:
             '''
             [TODO HACKATHON 3]
@@ -348,7 +361,10 @@ class GameScene(Scene):
         for enemy in self.game_manager.current_enemy_trainers:
             enemy.draw(screen, camera)
 
-
+        for npc in self.game_manager.current_npcs:
+            npc.draw(screen, camera)
+        
+        
 
         self.game_manager.bag.draw(screen)
        
@@ -365,10 +381,19 @@ class GameScene(Scene):
        
 
 
-
-
         self.bag.draw(screen) #my2
         self.setting_button.draw(screen)
+        # ★ NEW: 繪製金錢 (Requirement 2)
+        if self.game_manager and self.game_manager.bag:
+            money = self.game_manager.bag._money
+            
+            coin_x = GameSettings.SCREEN_WIDTH - 280 
+            coin_y = 20
+            
+            screen.blit(self.coin_icon, (coin_x, coin_y))
+
+            money_text = self.font_medium.render(f"{money}", True, (255, 255, 255)) 
+            screen.blit(money_text, (coin_x + 35, coin_y + 4))
         # Overlay
         if self.is_overlay_open:
             # 暗背景
@@ -382,7 +407,7 @@ class GameScene(Scene):
             screen.blit(overlay, (0, 0))
 
             # Overlay 內容
-            screen.blit(self.bg_image, (250, 100)) #位置
+            screen.blit(self.back_image, (250, 100)) #位置
 
             self.volume_slider.draw(screen)
             self.mute_button.draw(screen)
@@ -399,63 +424,10 @@ class GameScene(Scene):
             # 返回
             self.btn_back.draw(screen)
 
-        # Overlay
-        if self.is_bag_overlay_open:
-            # 暗背景
-                #建立一個新的層
-            overlay = pg.Surface((GameSettings.SCREEN_WIDTH, GameSettings.SCREEN_HEIGHT))
-                #alpha是指 整體透明度
-            overlay.set_alpha(180)
-                #填上顏色
-            overlay.fill((0, 0, 0))
-                #貼到主畫上
-            screen.blit(overlay, (0, 0))
-
-            # Overlay 內容
-            screen.blit(self.back_image, (250, 100)) #位置
-            # 顯示 Monsters
-            monster_title = self.font_medium.render("Monsters", True, (0, 0, 0))
-            item_title = self.font_medium.render("Items", True, (0, 0, 0))
-            screen.blit(monster_title, (300, 140))
-            screen.blit(item_title, (700, 140))
-
-
-            # 取得背包資料
-            bag = self.game_manager.bag
-
-            # --- 顯示怪獸 ---
-            y = 180
-            for mon in bag._monsters_data:
-                # 怪獸名稱
-                t = self.font_small.render(
-                    f"{mon.name}  Lv:{mon.level}  HP:{mon.hp}/{mon.max_hp}", True, (0, 0, 0)
-                )
-                screen.blit(t, (300, y))
-
-                # 怪獸圖片
-                img = pg.image.load("assets/images/" + mon.sprite_path).convert_alpha()
-                img = pg.transform.scale(img, (48, 48))
-                screen.blit(img, (600, y - 10))
-
-                y += 50
-
-            # --- 顯示道具 ---
-            y = 180
-            for item in bag._items_data:
-                t = self.font_small.render(
-                    f"{item.name} x{item.count}", True, (0, 0, 0)
-                )
-                screen.blit(t, (750, y))
-
-                # 圖片
-                img = pg.image.load("assets/images/" + item.sprite_path).convert_alpha()
-                img = pg.transform.scale(img, (32, 32))
-                screen.blit(img, (900, y - 5))
-
-                y += 50
-
-            self.btn_bag_close.draw(screen)
-            
+            #self.game_manager.bag.draw(screen)
+        
+     
+        
 
         # 顯示儲存/讀取訊息
         if self.message_timer > 0:
@@ -473,3 +445,29 @@ class GameScene(Scene):
             # 訊息文字
             screen.blit(message_surface, message_rect)
 
+    """def handle_event(self, event):
+        print("[GameScene] Event:", event)
+        if self.is_overlay_open:
+            self.btn_back.handle_event(event)
+            self.load_button.handle_event(event)
+            self.save_button.handle_event(event)
+            self.mute_button.handle_event(event)
+            self.volume_slider.handle_event(event)
+            return  # 覆蓋層打開時攔截所有事件
+    
+        # ========== 2. 處理背包內部事件（包括進化按鈕）==========
+        # ⭐ 關鍵：先處理背包內容，再處理背包按鈕
+        if self.game_manager.bag.visible:
+            # Bag 有處理事件 → 就 return
+            if self.game_manager.bag.handle_event(event):
+                return
+
+            # Bag 開著 → 阻擋遊戲操作（但保留按鈕事件）
+            return
+        
+        
+        self.bag.handle_event(event)
+        self.setting_button.handle_event(event)
+        
+        # ========== 4. 其他遊戲事件 ==========
+        # 玩家移動、互動等..."""
